@@ -10,8 +10,10 @@ import (
 	kraftcloud "sdk.kraft.cloud"
 	kcinstance "sdk.kraft.cloud/instances"
 
+	"github.com/jnfrati/boquita/internal/helpers"
 	"github.com/jnfrati/boquita/internal/models"
 	"github.com/jnfrati/boquita/internal/queue"
+	"github.com/jnfrati/boquita/internal/storage"
 )
 
 type Executor interface {
@@ -24,10 +26,10 @@ const (
 	ExecutorPlatform_UnikraftCloud executorPlatform = iota
 )
 
-func NewExecutor(platform executorPlatform, queue queue.Client[models.Job]) (Executor, error) {
+func NewExecutor(platform executorPlatform, queue queue.Client[models.Job], executionStorage storage.Storage[models.Execution]) (Executor, error) {
 	switch platform {
 	case ExecutorPlatform_UnikraftCloud:
-		return newUnikraftExecutor(queue)
+		return newUnikraftExecutor(queue, executionStorage)
 	default:
 		return nil, nil
 	}
@@ -37,9 +39,11 @@ type unikraftExecutor struct {
 	kraftcloud kraftcloud.KraftCloud
 
 	queueClient queue.Client[models.Job]
+
+	executionStorage storage.Storage[models.Execution]
 }
 
-func newUnikraftExecutor(queueClient queue.Client[models.Job]) (*unikraftExecutor, error) {
+func newUnikraftExecutor(queueClient queue.Client[models.Job], executionStorage storage.Storage[models.Execution]) (*unikraftExecutor, error) {
 	kraftToken, ok := os.LookupEnv("UKC_TOKEN")
 	if !ok {
 		return nil, errors.New("UKC_TOKEN missing, can't start unikraft executor")
@@ -56,8 +60,9 @@ func newUnikraftExecutor(queueClient queue.Client[models.Job]) (*unikraftExecuto
 	)
 
 	return &unikraftExecutor{
-		kraftcloud:  client,
-		queueClient: queueClient,
+		kraftcloud:       client,
+		queueClient:      queueClient,
+		executionStorage: executionStorage,
 	}, nil
 
 }
@@ -67,15 +72,6 @@ func (ue *unikraftExecutor) Start(ctx context.Context) error {
 	// defer ue.Cleanup()
 
 	client := ue.kraftcloud
-
-	autostart := true
-	name := "my-instance"
-
-	client.Instances().WithMetro("fra0").Create(ctx, kcinstance.CreateRequest{
-		Autostart: &autostart,
-		Image:     "caddy:latest",
-		Name:      &name,
-	})
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -104,11 +100,12 @@ func (ue *unikraftExecutor) Start(ctx context.Context) error {
 		}
 
 		res, err := client.Instances().Create(ctx, kcinstance.CreateRequest{
-			Name:     &job.Name,
-			Image:    manifest.Image,
-			Args:     manifest.Args,
-			Env:      manifest.EnvMap,
-			MemoryMB: manifest.MemoryMB,
+			Name:      &job.Name,
+			Image:     manifest.Image,
+			Args:      manifest.Args,
+			Env:       manifest.EnvMap,
+			MemoryMB:  manifest.MemoryMB,
+			Autostart: helpers.Ptr(true),
 		})
 
 		if err != nil {
@@ -123,6 +120,21 @@ func (ue *unikraftExecutor) Start(ctx context.Context) error {
 			}
 
 			return errors.Join(errlist...)
+		}
+
+		execution := models.Execution{
+			JobId:      job.Id,
+			StartedAt:  time.Now(),
+			Status:     models.ExecutionStatus_RUNNING,
+			ExitCode:   nil,
+			ExitStatus: nil,
+			FinishedAt: nil,
+			Logs:       []string{},
+		}
+
+		_, err = ue.executionStorage.Set(ctx, &execution)
+		if err != nil {
+			return err
 		}
 
 		// TODO: Init observer for instance
