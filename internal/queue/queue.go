@@ -8,8 +8,8 @@ import (
 var ErrQueueEmpty = errors.New("can't pull from queue: queue empty")
 
 type Client[I any] interface {
-	Push(I) error
-	Pull() (I, error)
+	Push(*I) error
+	Pull() (*I, error)
 }
 
 type Server[I any] interface {
