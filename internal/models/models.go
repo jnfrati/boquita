@@ -3,6 +3,8 @@ package models
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/robfig/cron/v3"
 )
 
 type ExecutionStatus uint8
@@ -23,8 +25,8 @@ type Execution struct {
 
 	Status ExecutionStatus `json:"status"`
 
-	ExitCode   uint `json:"exit_code"`
-	ExitStatus uint `json:"exit_status"`
+	ExitCode   *uint `json:"exit_code"`
+	ExitStatus *uint `json:"exit_status"`
 
 	Logs []string `json:"logs"`
 }
@@ -59,8 +61,18 @@ type JobManifest struct {
 	json.RawMessage
 }
 
+type JobType uint8
+
+const (
+	JobType_SingleExecution JobType = iota
+	JobType_Schedule
+	JobType_Cron
+)
+
 type Job struct {
 	Id string `json:"id"`
+
+	Type JobType `json:"type"`
 
 	// Used to identify the different versions of the job
 	InstanceId string `json:"instance_id"`
@@ -75,4 +87,10 @@ type Job struct {
 	Executions []Execution `json:"executions,omitempty"`
 
 	Manifest JobManifest `json:"manifest"`
+}
+
+// Internal structure only
+type CronToJob struct {
+	JobId       string
+	CronEntryId cron.EntryID
 }
