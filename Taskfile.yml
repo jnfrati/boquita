@@ -1,0 +1,9 @@
+version: '3'
+
+tasks:
+  cli:
+    cmd: "go run ./cli/cli.go {{.CLI_ARGS}}" 
+  
+  run-example:
+    cmds:
+      - go run ./cli/cli.go create ./example/job.yml

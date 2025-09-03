@@ -1,0 +1,8 @@
+version: "job.manifest/v0"
+
+
+name: "kraft"
+image: "nfrati/failjob:latest"
+entrypoint: "./server"
+
+cron: "* * * * *"

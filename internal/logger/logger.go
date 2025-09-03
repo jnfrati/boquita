@@ -12,7 +12,7 @@ var Global = zerolog.New(os.Stderr).With().Timestamp().Logger()
 
 func init() {
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
-	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	zerolog.SetGlobalLevel(zerolog.DebugLevel)
 
 	debug := flag.Bool("debug", false, "sets log level to debug")
 	logOutput := flag.String("log-output", "stderr", "sets log output (stderr, stdout, file)")

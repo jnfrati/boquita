@@ -1,7 +1,6 @@
 package models
 
 import (
-	"encoding/json"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -25,8 +24,7 @@ type Execution struct {
 
 	Status ExecutionStatus `json:"status"`
 
-	ExitCode   *uint `json:"exit_code"`
-	ExitStatus *uint `json:"exit_status"`
+	ExitCode *uint `json:"exit_code"`
 
 	Logs []string `json:"logs"`
 }
@@ -34,59 +32,32 @@ type Execution struct {
 type JobManifestVersion string
 
 const (
-	JobManifestVersion_v1 = "job.manifest/v1"
+	JobManifestVersion_v1 JobManifestVersion = "job.manifest/v1"
 )
 
 type JobManifestV1 struct {
+	Name       string             `json:"name"`
 	Version    JobManifestVersion `json:"version"`
 	Image      string             `json:"image"`
 	Entrypoint string             `json:"entrypoint"`
 	MemoryMB   *int               `json:"memory_mb,omitempty"`
 	Args       []string           `json:"args,omitempty"`
 	EnvMap     map[string]string  `json:"env_map,omitempty"`
+
+	Cron     *string `json:"cron_expr,omitempty"`
+	Schedule *string `json:"schedule,omitempty"`
 	// TODO: Support Volumes, maybe for this job manifest version using
 	// Volumes instances.CreateRequestVolume
 }
 
-func (jmv1 *JobManifestV1) FromRawMessage(manifest json.RawMessage) error {
-	if err := json.Unmarshal(manifest, jmv1); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-type JobManifest struct {
-	Version JobManifestVersion `json:"version"`
-	json.RawMessage
-}
-
-type JobType uint8
-
-const (
-	JobType_SingleExecution JobType = iota
-	JobType_Schedule
-	JobType_Cron
-)
-
 type Job struct {
 	Id string `json:"id"`
-
-	Type JobType `json:"type"`
-
-	// Used to identify the different versions of the job
-	InstanceId string `json:"instance_id"`
-
-	// Counter to identify the iteration
-	Version uint32 `json:"version"`
-
-	Name string `json:"name"`
 
 	LastExecution *Execution `json:"last_execution,omitempty"`
 
 	Executions []Execution `json:"executions,omitempty"`
 
-	Manifest JobManifest `json:"manifest"`
+	Manifest *JobManifestV1 `json:"manifest"`
 }
 
 // Internal structure only

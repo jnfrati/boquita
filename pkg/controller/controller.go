@@ -2,8 +2,10 @@ package controller
 
 import (
 	"context"
-	"encoding/json"
+	"slices"
 
+	"github.com/google/uuid"
+	"github.com/pkg/errors"
 	"github.com/robfig/cron/v3"
 
 	"github.com/jnfrati/boquita/internal/models"
@@ -17,7 +19,18 @@ func NewController(
 	cronToJobStorage storage.Storage[models.CronToJob],
 	executionStorage storage.Storage[models.Execution],
 ) *Controller {
+	c := cron.New(
+		cron.WithParser(
+			cron.NewParser(
+				cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow,
+			),
+		),
+	)
+
+	c.Start()
+
 	return &Controller{
+		cronManager:      c,
 		qc:               qc,
 		jobStorage:       jobStorage,
 		cronToJobStorage: cronToJobStorage,
@@ -32,67 +45,54 @@ type Controller struct {
 	executionStorage storage.Storage[models.Execution]
 	cronToJobStorage storage.Storage[models.CronToJob]
 
-	cronManager cron.Cron
+	cronManager *cron.Cron
 }
 
 func (c *Controller) ListJobs(ctx context.Context) ([]models.Job, error) {
 	return c.jobStorage.List(ctx, 100, 0)
 }
 
-func (c *Controller) CreateJob(ctx context.Context, payload *models.Job) (string, error) {
-	manifest := new(models.JobManifestV1)
+func (c *Controller) CreateJob(ctx context.Context, payload *models.JobManifestV1) (string, error) {
 
-	if err := json.Unmarshal(payload.Manifest.RawMessage, manifest); err != nil {
-		return "", err
-	}
+	job := new(models.Job)
 
-	var entryId cron.EntryID
+	job.Id = uuid.NewString()
+	job.Manifest = payload
 
-	if payload.Type == models.JobType_Cron || payload.Type == models.JobType_Schedule {
-		j := cron.FuncJob(func() {
-			if err := c.qc.Push(payload); err != nil {
-				// Send an error or retry
-			}
-		})
-
-		scheduledAt, err := cron.ParseStandard("staff")
-		if err != nil {
-			return "", err
-		}
-
-		if payload.Type == models.JobType_Cron {
-			entryId, err = c.cronManager.AddFunc("staff", j)
-			if err != nil {
-				return "", err
-			}
-
-		} else if payload.Type == models.JobType_Schedule {
-			c.cronManager.Schedule(scheduledAt, j)
-		}
-	}
-
-	id, err := c.jobStorage.Set(ctx, payload)
+	err := c.jobStorage.Set(ctx, job.Id, job)
 	if err != nil {
 		return "", err
 	}
 
-	// TODO: Fix, because storage receives any, we can't properly set the ID
-	payload.Id = id
+	j := cron.FuncJob(func() {
+		if err := c.qc.Push(job); err != nil {
+			// Send an error or retry
+		}
+	})
 
-	if _, err := c.cronToJobStorage.Set(ctx, &models.CronToJob{
-		JobId:       id,
-		CronEntryId: entryId,
-	}); err != nil {
-		return "", err
-	}
+	if payload.Cron != nil {
+		entryId, err := c.cronManager.AddFunc(*payload.Cron, j)
+		if err != nil {
+			return "", errors.Wrap(err, "couldn't add cron execution")
+		}
 
-	if payload.Type == models.JobType_SingleExecution {
-		// Queue the job directly
-		if err := c.qc.Push(payload); err != nil {
-			return "", err
+		if err := c.cronToJobStorage.Set(ctx, uuid.NewString(), &models.CronToJob{
+			JobId:       job.Id,
+			CronEntryId: entryId,
+		}); err != nil {
+			return "", errors.Wrap(err, "couldn't store the relationship between cron entry and job id")
 		}
 	}
-	return id, nil
+
+	if payload.Schedule != nil {
+		cronExpr, err := cron.ParseStandard(*payload.Schedule)
+		if err != nil {
+			return "", err
+		}
+		c.cronManager.Schedule(cronExpr, j)
+	}
+
+	return job.Id, nil
 }
 
 func (c *Controller) GetById(ctx context.Context, jobId string) (*models.Job, error) {
@@ -108,6 +108,17 @@ func (c *Controller) GetById(ctx context.Context, jobId string) (*models.Job, er
 	}
 
 	job.Executions = executions
+
+	if len(job.Executions) > 0 {
+		slices.SortFunc(
+			job.Executions,
+			func(a models.Execution, b models.Execution) int {
+				return b.StartedAt.Compare(a.StartedAt)
+			},
+		)
+
+		job.LastExecution = &job.Executions[0]
+	}
 	return job, nil
 }
 

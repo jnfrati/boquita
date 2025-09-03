@@ -9,7 +9,7 @@ var ErrQueueEmpty = errors.New("can't pull from queue: queue empty")
 
 type Client[I any] interface {
 	Push(*I) error
-	Pull() (*I, error)
+	Pull(context.Context) (*I, error)
 }
 
 type Server[I any] interface {

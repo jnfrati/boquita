@@ -6,8 +6,6 @@ import (
 	"reflect"
 	"strings"
 	"sync"
-
-	"github.com/google/uuid"
 )
 
 type Storage[I any] interface {
@@ -15,7 +13,7 @@ type Storage[I any] interface {
 	SearchBy(ctx context.Context, path string, value any) ([]I, error)
 	List(ctx context.Context, limit uint8, skip uint8) ([]I, error)
 
-	Set(ctx context.Context, data *I) (id string, err error)
+	Set(ctx context.Context, id string, data *I) (err error)
 	Remove(ctx context.Context, id string) error
 }
 
@@ -112,7 +110,7 @@ func (ms *MemoryStorage[I]) List(ctx context.Context, _limit uint8, _skip uint8)
 	ms.mux.RLock()
 	defer ms.mux.RUnlock()
 
-	data := make([]I, len(ms.data))
+	data := make([]I, 0)
 
 	for _, d := range ms.data {
 		data = append(data, *d)
@@ -120,15 +118,13 @@ func (ms *MemoryStorage[I]) List(ctx context.Context, _limit uint8, _skip uint8)
 	return data, nil
 }
 
-func (ms *MemoryStorage[I]) Set(ctx context.Context, data *I) (string, error) {
+func (ms *MemoryStorage[I]) Set(ctx context.Context, id string, data *I) error {
 	ms.mux.Lock()
 	defer ms.mux.Unlock()
 
-	id := uuid.NewString()
-
 	ms.data[id] = data
 
-	return id, nil
+	return nil
 }
 func (ms *MemoryStorage[I]) Remove(ctx context.Context, id string) error {
 	ms.mux.Lock()
